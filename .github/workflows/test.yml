@@ -33,6 +33,12 @@ jobs:
         go-version: 1.19
       id: setup-go
 
+    - name: Install migrate tool
+      run: 
+        curl -L https://github.com/golang-migrate/migrate/releases/download/v4.15.2/migrate.linux-amd64.deb | tar xvz
+        sudo mv migrate.linux-amd64 /usr/bin/
+        which migrate
+        
     - name: Run DB migration 
       run: make migrateup
 
