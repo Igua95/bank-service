@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/igua95/simplebank/util"
 	_ "github.com/lib/pq"
 )
 
@@ -14,16 +15,17 @@ var testQueries *Queries
 
 var db *sql.DB
 
-const (
-	dbDriver = "postgres"
-	dbSource = "postgres://root:secret@localhost:5432/simple_bank?sslmode=disable"
-)
-
 // Main entry point of all unit test by convention
 func TestMain(m *testing.M) {
 	var error error
+	var config util.Config
 
-	db, error = sql.Open(dbDriver, dbSource)
+	config, error = util.LoadConfig("../../.")
+	if error != nil {
+		log.Fatal("Cannot read config.", error)
+	}
+
+	db, error = sql.Open(config.DBDriver, config.DBSource)
 
 	if error != nil {
 		log.Fatal("Cannot connect to the database.")
