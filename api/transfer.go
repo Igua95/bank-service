@@ -2,11 +2,13 @@ package api
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	db "github.com/igua95/simplebank/db/sqlc"
+	"github.com/igua95/simplebank/token"
 )
 
 // https://pkg.go.dev/github.com/go-playground/validator/v10#hdr-One_Of
@@ -17,11 +19,11 @@ type transferRequest struct {
 	Currency      string `json:"currency" binding:"required,currency"`
 }
 
-func (server *Server) createTransfer(ctx *gin.Context) {
+func (server *Server) createTransfer(context *gin.Context) {
 	var req transferRequest
 
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+	if err := context.ShouldBindJSON(&req); err != nil {
+		context.JSON(http.StatusBadRequest, errorResponse(err))
 		return
 	}
 
@@ -31,43 +33,52 @@ func (server *Server) createTransfer(ctx *gin.Context) {
 		Amount:        req.Amount,
 	}
 
-	if !server.validAccount(ctx, req.FromAccountId, req.Currency) {
-		return
-	}
-	if !server.validAccount(ctx, req.ToAccountId, req.Currency) {
+	fromAccount, valid := server.validAccount(context, req.FromAccountId, req.Currency)
+	if !valid {
 		return
 	}
 
-	result, err := server.store.TransferTx(ctx, arg)
+	authPayload := context.MustGet(authorizationPayloadKey).(*token.Payload)
+
+	if fromAccount.Owner != authPayload.Username {
+		err := errors.New("Forbidden")
+		context.JSON(http.StatusUnauthorized, errorResponse(err))
+		return
+	}
+
+	_, valid = server.validAccount(context, req.ToAccountId, req.Currency)
+	if !valid {
+		return
+	}
+
+	result, err := server.store.TransferTx(context, arg)
 
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		context.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
 
-	ctx.JSON(http.StatusOK, result)
+	context.JSON(http.StatusOK, result)
 }
 
-func (server *Server) validAccount(ctx *gin.Context, accountId int64, currency string) bool {
-	server.store.GetAccount(ctx, accountId)
-
+func (server *Server) validAccount(ctx *gin.Context, accountId int64, currency string) (db.Account, bool) {
 	account, err := server.store.GetAccount(ctx, accountId)
 
 	if err == sql.ErrNoRows {
 		ctx.JSON(http.StatusNotFound, errorResponse(err))
-		return false
+		return account, false
 	}
 
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
-		return false
+		return account, false
 	}
 
 	if account.Currency != currency {
 		err := fmt.Errorf("Account: %d currency mismatch: %s vs %s", accountId, account.Currency, currency)
 		ctx.JSON(http.StatusBadRequest, errorResponse(err))
-		return false
+		return account, false
 	}
 
-	return true
+	return account, true
 }
